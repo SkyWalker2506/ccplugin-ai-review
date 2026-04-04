@@ -1,0 +1,13 @@
+{
+  "name": "ai-review",
+  "description": "Automated GitHub PR review via OpenRouter free models (Gemma 3 27B). Posts AI-generated review comments on pull requests.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SkyWalker2506",
+    "url": "https://github.com/SkyWalker2506"
+  },
+  "homepage": "https://github.com/SkyWalker2506/claude-config",
+  "repository": "https://github.com/SkyWalker2506/claude-plugins",
+  "license": "MIT",
+  "keywords": ["github", "pr", "code-review", "openrouter", "gemma", "ci", "automation"]
+}
