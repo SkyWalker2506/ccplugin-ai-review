@@ -7,6 +7,12 @@ Automated GitHub PR review via OpenRouter free models (Gemma 3 27B). Posts AI-ge
 ## Install
 
 ```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/SkyWalker2506/claude-marketplace/main/install.sh) ai-review
+```
+
+Or via Claude Code native marketplace:
+
+```bash
 claude plugin install ai-review@musabkara-claude-marketplace
 ```
 
