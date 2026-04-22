@@ -1,0 +1,145 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate API key
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY secret is not set. Add it in repo Settings → Secrets."
+            exit 1
+          fi
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: Get PR diff
+        id: diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_DIFF=$(gh pr diff ${{ github.event.pull_request.number }} 2>/dev/null || echo "")
+          if [ -z "$PR_DIFF" ]; then
+            echo "No diff found — skipping review."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Truncate to ~8000 chars to avoid token overflow
+          PR_DIFF_TRUNCATED="${PR_DIFF:0:8000}"
+          if [ ${#PR_DIFF} -gt 8000 ]; then
+            PR_DIFF_TRUNCATED="${PR_DIFF_TRUNCATED}
+
+          _(diff truncated at 8000 chars)_"
+          fi
+          # Export safely via GITHUB_OUTPUT (avoids shell injection)
+          {
+            echo "diff<<EOF_DIFF"
+            echo "$PR_DIFF_TRUNCATED"
+            echo "EOF_DIFF"
+          } >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: AI Review via OpenRouter
+        if: steps.diff.outputs.skip == 'false'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_DIFF: ${{ steps.diff.outputs.diff }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PRIMARY_MODEL="google/gemma-3-27b-it:free"
+          FALLBACK_MODEL="mistralai/mistral-7b-instruct:free"
+
+          PROMPT="You are a senior software engineer reviewing a GitHub pull request.
+
+          PR #${PR_NUMBER}: ${PR_TITLE}
+
+          Diff:
+          ${PR_DIFF}
+
+          Provide a structured review with these exact sections:
+          ## Summary
+          Brief overview of what this PR does.
+
+          ## Issues
+          List any bugs, security concerns, or correctness problems. If none, write 'No issues found.'
+
+          ## Suggestions
+          Actionable improvement suggestions (style, performance, maintainability). If none, write 'Looks good.'
+
+          Be concise and specific. Reference line numbers where possible."
+
+          # Build JSON payload safely using python3
+          PAYLOAD=$(python3 -c "
+          import json, sys
+          prompt = sys.stdin.read()
+          payload = {
+              'model': '$PRIMARY_MODEL',
+              'messages': [{'role': 'user', 'content': prompt}],
+              'max_tokens': 1024
+          }
+          print(json.dumps(payload))
+          " <<< "$PROMPT")
+
+          # Try primary model
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "HTTP-Referer: https://github.com/SkyWalker2506/ccplugin-ai-review" \
+            -d "$PAYLOAD")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          # Fallback if primary fails
+          if [ "$HTTP_CODE" != "200" ] || echo "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if 'choices' in d else 1)" 2>/dev/null; then
+            echo "Primary model unavailable (HTTP $HTTP_CODE), trying fallback..."
+            PAYLOAD_FALLBACK=$(echo "$PAYLOAD" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          d['model']='$FALLBACK_MODEL'
+          print(json.dumps(d))")
+            RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -X POST https://openrouter.ai/api/v1/chat/completions \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+              -H "Content-Type: application/json" \
+              -H "HTTP-Referer: https://github.com/SkyWalker2506/ccplugin-ai-review" \
+              -d "$PAYLOAD_FALLBACK")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+          fi
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::OpenRouter API returned HTTP $HTTP_CODE. Check your OPENROUTER_API_KEY."
+            exit 1
+          fi
+
+          REVIEW=$(echo "$BODY" | python3 -c "
+          import json,sys
+          try:
+              d = json.load(sys.stdin)
+              print(d['choices'][0]['message']['content'])
+          except Exception as e:
+              print(f'Error parsing API response: {e}')
+              sys.exit(1)
+          ")
+
+          COMMENT="## 🤖 AI Code Review
+
+          ${REVIEW}
+
+          ---
+          _Powered by [ccplugin-ai-review](https://github.com/SkyWalker2506/ccplugin-ai-review) · Free via OpenRouter_"
+
+          gh pr comment "$PR_NUMBER" --body "$COMMENT"
