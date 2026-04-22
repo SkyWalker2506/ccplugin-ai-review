@@ -1,13 +1,28 @@
 {
   "name": "ai-review",
   "description": "Automated GitHub PR review via OpenRouter free models (Gemma 3 27B). Posts AI-generated review comments on pull requests.",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "min_claude_version": "1.0.0",
   "author": {
     "name": "Musab Kara",
     "url": "https://github.com/SkyWalker2506"
   },
-  "homepage": "https://github.com/SkyWalker2506/claude-config",
+  "homepage": "https://github.com/SkyWalker2506/ccplugin-ai-review",
   "repository": "https://github.com/SkyWalker2506/ccplugin-ai-review",
   "license": "MIT",
-  "keywords": ["github", "pr", "code-review", "openrouter", "gemma", "ci", "automation"]
+  "keywords": ["github", "pr", "code-review", "openrouter", "gemma", "ci", "automation"],
+  "tags": ["github", "pr-review", "code-review", "openrouter", "gemma", "free", "ci", "automation"],
+  "commands": [
+    {
+      "name": "ai-review",
+      "description": "Run AI code review on the current or specified GitHub PR",
+      "usage": "/ai-review [PR_number]"
+    }
+  ],
+  "skills": [
+    {
+      "name": "ai-review",
+      "description": "Automated PR review skill using OpenRouter free models"
+    }
+  ]
 }
